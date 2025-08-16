@@ -70,6 +70,10 @@ class LiquidGlassRenderer {
         this.renderer.shadowMap.enabled = true;
         this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
         
+        // Configure renderer for transparency
+        this.renderer.sortObjects = true; // Important for transparent objects
+        this.renderer.alpha = true;
+        
         // Create lighting
         this.createLighting();
         
@@ -160,25 +164,62 @@ class LiquidGlassRenderer {
         // Create a glass object (cube) that will be superimposed
         const geometry = new THREE.BoxGeometry(1.5, 1.5, 1.5);
         
-        // Create a basic glass material (will be enhanced in Phase 3)
-        const material = new THREE.MeshPhysicalMaterial({
-            color: 0xffffff,
+        // Create a custom shader material for basic transparency
+        const material = new THREE.ShaderMaterial({
+            uniforms: {
+                time: { value: 0.0 },
+                opacity: { value: 0.3 }
+            },
+            vertexShader: `
+                varying vec3 vPosition;
+                varying vec3 vNormal;
+                varying vec3 vWorldPosition;
+                
+                void main() {
+                    vPosition = position;
+                    vNormal = normalize(normalMatrix * normal);
+                    vWorldPosition = (modelMatrix * vec4(position, 1.0)).xyz;
+                    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+                }
+            `,
+            fragmentShader: `
+                uniform float time;
+                uniform float opacity;
+                varying vec3 vPosition;
+                varying vec3 vNormal;
+                varying vec3 vWorldPosition;
+                
+                void main() {
+                    // Basic glass color with slight blue tint
+                    vec3 glassColor = vec3(0.8, 0.9, 1.0);
+                    
+                    // Simple fresnel effect (more transparent at center, more opaque at edges)
+                    float fresnel = 1.0 - abs(dot(vNormal, vec3(0.0, 0.0, 1.0)));
+                    fresnel = pow(fresnel, 2.0);
+                    
+                    // Combine base color with fresnel
+                    vec3 finalColor = mix(glassColor, vec3(1.0), fresnel * 0.3);
+                    
+                    // Calculate alpha based on fresnel and base opacity
+                    float alpha = opacity + fresnel * 0.4;
+                    alpha = clamp(alpha, 0.1, 0.8); // Keep alpha in reasonable range
+                    
+                    gl_FragColor = vec4(finalColor, alpha);
+                }
+            `,
             transparent: true,
-            opacity: 0.3,
-            metalness: 0.0,
-            roughness: 0.0,
-            transmission: 0.9,
-            thickness: 0.5,
-            envMapIntensity: 1.0
+            side: THREE.DoubleSide, // Render both sides of faces
+            depthWrite: false, // Important for transparency
+            blending: THREE.AdditiveBlending // Additive blending for glass effect
         });
         
         this.glassObject = new THREE.Mesh(geometry, material);
         this.glassObject.position.set(0, 0, 2);
-        this.glassObject.castShadow = true;
+        this.glassObject.castShadow = false; // Transparent objects shouldn't cast shadows
         this.glassObject.receiveShadow = true;
         this.scene.add(this.glassObject);
         
-        console.log('Glass object created');
+        console.log('Glass object created with custom transparency shader');
     }
 
     setupCameraControls() {
@@ -233,6 +274,27 @@ class LiquidGlassRenderer {
         console.log('Manual camera controls setup complete');
     }
 
+    setupShaderControls() {
+        const opacitySlider = document.getElementById('opacitySlider');
+        const opacityValue = document.getElementById('opacityValue');
+        
+        if (opacitySlider && opacityValue) {
+            opacitySlider.addEventListener('input', (event) => {
+                const newOpacity = parseFloat(event.target.value);
+                opacityValue.textContent = newOpacity.toFixed(2);
+                
+                // Update the shader uniform
+                if (this.glassObject && this.glassObject.material.uniforms) {
+                    this.glassObject.material.uniforms.opacity.value = newOpacity;
+                }
+                
+                console.log(`Glass opacity updated to: ${newOpacity}`);
+            });
+        }
+        
+        console.log('Shader parameter controls initialized');
+    }
+
     updateManualCamera() {
         // Calculate camera position based on rotation and distance
         const x = this.cameraDistance * Math.cos(this.targetRotationX) * Math.sin(this.targetRotationY);
@@ -280,6 +342,9 @@ class LiquidGlassRenderer {
         window.addEventListener('resize', () => {
             this.resizeCanvas();
         });
+        
+        // Setup shader parameter controls
+        this.setupShaderControls();
     }
 
     resizeCanvas() {
@@ -340,6 +405,11 @@ class LiquidGlassRenderer {
         // Update shader uniforms
         if (this.backgroundObject && this.backgroundObject.material.uniforms) {
             this.backgroundObject.material.uniforms.time.value = elapsedTime;
+        }
+        
+        // Update glass shader uniforms
+        if (this.glassObject && this.glassObject.material.uniforms) {
+            this.glassObject.material.uniforms.time.value = elapsedTime;
         }
         
         // Update controls

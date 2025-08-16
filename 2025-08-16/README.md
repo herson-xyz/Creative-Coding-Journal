@@ -2,7 +2,7 @@
 
 A step-by-step implementation of liquid glass shaders using WebGL, built incrementally to demonstrate various shader techniques.
 
-## Current Status: Phase 2 - Scene Foundation ✅
+## Current Status: Phase 3 - Step 1: Basic Transparency & Alpha Blending ✅
 
 ### What's Implemented:
 - **Responsive Canvas**: Automatically resizes to maintain square aspect ratio
@@ -13,9 +13,11 @@ A step-by-step implementation of liquid glass shaders using WebGL, built increme
 - **Modern UI**: Clean, glassmorphic design with backdrop blur effects
 - **3D Scene Setup**: Three.js integration with proper camera and renderer
 - **Background Object**: Animated sphere with custom shader material (colorful gradient)
-- **Glass Object**: Transparent cube with basic glass material properties
+- **Glass Object**: Custom shader material with basic transparency and Fresnel effects
 - **Lighting System**: Ambient, directional, and point lighting with shadows
 - **Animation Loop**: Smooth rotation of both objects with shader time updates
+- **Interactive Controls**: Real-time opacity slider for glass transparency adjustment
+- **Custom Shaders**: Fragment and vertex shaders for glass material with alpha blending
 
 ### Files Created:
 - `index.html` - Main HTML structure with canvas and Three.js import
