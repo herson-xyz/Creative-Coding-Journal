@@ -160,12 +160,12 @@ class LiquidGlassRenderer {
         console.log('Background object created');
     }
 
-    createGlassObject() {
+        createGlassObject() {
         // Create a glass object (cube) that will be superimposed
         const geometry = new THREE.BoxGeometry(1.5, 1.5, 1.5);
         
-        // Create a custom shader material for basic transparency
-        const material = new THREE.ShaderMaterial({
+        // Create basic Fresnel shader material (Step 1)
+        this.basicFresnelMaterial = new THREE.ShaderMaterial({
             uniforms: {
                 time: { value: 0.0 },
                 opacity: { value: 0.3 }
@@ -193,7 +193,7 @@ class LiquidGlassRenderer {
                     // Basic glass color with slight blue tint
                     vec3 glassColor = vec3(0.8, 0.9, 1.0);
                     
-                    // Simple fresnel effect (more transparent at center, more opaque at edges)
+                    // Simple Fresnel effect (more transparent at center, more opaque at edges)
                     float fresnel = 1.0 - abs(dot(vNormal, vec3(0.0, 0.0, 1.0)));
                     fresnel = pow(fresnel, 2.0);
                     
@@ -202,24 +202,85 @@ class LiquidGlassRenderer {
                     
                     // Calculate alpha based on fresnel and base opacity
                     float alpha = opacity + fresnel * 0.4;
-                    alpha = clamp(alpha, 0.1, 0.8); // Keep alpha in reasonable range
+                    alpha = clamp(alpha, 0.1, 0.8);
                     
                     gl_FragColor = vec4(finalColor, alpha);
                 }
             `,
             transparent: true,
-            side: THREE.DoubleSide, // Render both sides of faces
-            depthWrite: false, // Important for transparency
-            blending: THREE.AdditiveBlending // Additive blending for glass effect
+            side: THREE.DoubleSide,
+            depthWrite: false,
+            blending: THREE.AdditiveBlending
         });
         
-        this.glassObject = new THREE.Mesh(geometry, material);
+        // Create enhanced Fresnel shader material (Step 2)
+        this.enhancedFresnelMaterial = new THREE.ShaderMaterial({
+            uniforms: {
+                time: { value: 0.0 },
+                opacity: { value: 0.3 },
+                camPos: { value: new THREE.Vector3() }
+            },
+            vertexShader: `
+                varying vec3 vPosition;
+                varying vec3 vNormal;
+                varying vec3 vWorldPosition;
+                varying vec3 vWorldNormal;
+                
+                void main() {
+                    vPosition = position;
+                    vNormal = normalize(normalMatrix * normal);
+                    vWorldPosition = (modelMatrix * vec4(position, 1.0)).xyz;
+                    vWorldNormal = normalize((modelMatrix * vec4(normal, 0.0)).xyz);
+                    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+                }
+            `,
+            fragmentShader: `
+                uniform float time;
+                uniform float opacity;
+                uniform vec3 camPos;
+                varying vec3 vPosition;
+                varying vec3 vNormal;
+                varying vec3 vWorldPosition;
+                varying vec3 vWorldNormal;
+                
+                void main() {
+                    // Calculate view direction from camera to this pixel
+                    vec3 viewDirection = normalize(camPos - vWorldPosition);
+                    
+                    // Enhanced Fresnel effect using actual view direction
+                    float fresnel = 1.0 - max(dot(viewDirection, vWorldNormal), 0.0);
+                    fresnel = pow(fresnel, 3.0); // Adjust power for Fresnel intensity
+                    
+                    // Base glass color with slight blue tint
+                    vec3 glassColor = vec3(0.8, 0.9, 1.0);
+                    
+                    // Add subtle color variation based on Fresnel
+                    vec3 fresnelColor = mix(glassColor, vec3(1.0, 1.0, 0.9), fresnel * 0.4);
+                    
+                    // Calculate alpha based on Fresnel and base opacity
+                    float alpha = opacity + fresnel * 0.5;
+                    alpha = clamp(alpha, 0.1, 0.8);
+                    
+                    // Add subtle reflection at grazing angles
+                    vec3 reflection = mix(glassColor, vec3(1.0), fresnel * 0.6);
+                    
+                    gl_FragColor = vec4(reflection, alpha);
+                }
+            `,
+            transparent: true,
+            side: THREE.DoubleSide,
+            depthWrite: false,
+            blending: THREE.AdditiveBlending
+        });
+        
+        // Start with enhanced Fresnel material
+        this.glassObject = new THREE.Mesh(geometry, this.enhancedFresnelMaterial);
         this.glassObject.position.set(0, 0, 2);
-        this.glassObject.castShadow = false; // Transparent objects shouldn't cast shadows
+        this.glassObject.castShadow = false;
         this.glassObject.receiveShadow = true;
         this.scene.add(this.glassObject);
         
-        console.log('Glass object created with custom transparency shader');
+        console.log('Glass object created with toggleable Fresnel effects');
     }
 
     setupCameraControls() {
@@ -277,18 +338,45 @@ class LiquidGlassRenderer {
     setupShaderControls() {
         const opacitySlider = document.getElementById('opacitySlider');
         const opacityValue = document.getElementById('opacityValue');
+        const fresnelToggle = document.getElementById('fresnelToggle');
+        const toggleStatus = document.querySelector('.toggle-status');
         
         if (opacitySlider && opacityValue) {
             opacitySlider.addEventListener('input', (event) => {
                 const newOpacity = parseFloat(event.target.value);
                 opacityValue.textContent = newOpacity.toFixed(2);
                 
-                // Update the shader uniform
-                if (this.glassObject && this.glassObject.material.uniforms) {
-                    this.glassObject.material.uniforms.opacity.value = newOpacity;
+                // Update both materials' opacity uniforms
+                if (this.basicFresnelMaterial && this.basicFresnelMaterial.uniforms) {
+                    this.basicFresnelMaterial.uniforms.opacity.value = newOpacity;
+                }
+                if (this.enhancedFresnelMaterial && this.enhancedFresnelMaterial.uniforms) {
+                    this.enhancedFresnelMaterial.uniforms.opacity.value = newOpacity;
                 }
                 
                 console.log(`Glass opacity updated to: ${newOpacity}`);
+            });
+        }
+        
+        if (fresnelToggle && toggleStatus) {
+            fresnelToggle.addEventListener('change', (event) => {
+                const isEnhanced = event.target.checked;
+                
+                // Switch materials
+                if (isEnhanced) {
+                    this.glassObject.material = this.enhancedFresnelMaterial;
+                    toggleStatus.textContent = 'ON';
+                    console.log('Switched to Enhanced Fresnel effect');
+                } else {
+                    this.glassObject.material = this.basicFresnelMaterial;
+                    toggleStatus.textContent = 'OFF';
+                    console.log('Switched to Basic Fresnel effect');
+                }
+                
+                // Update opacity in the new material
+                if (this.glassObject.material.uniforms && this.glassObject.material.uniforms.opacity) {
+                    this.glassObject.material.uniforms.opacity.value = parseFloat(opacitySlider.value);
+                }
             });
         }
         
@@ -410,6 +498,11 @@ class LiquidGlassRenderer {
         // Update glass shader uniforms
         if (this.glassObject && this.glassObject.material.uniforms) {
             this.glassObject.material.uniforms.time.value = elapsedTime;
+            
+            // Update camera position only for enhanced Fresnel material
+            if (this.glassObject.material.uniforms.camPos) {
+                this.glassObject.material.uniforms.camPos.value.copy(this.camera.position);
+            }
         }
         
         // Update controls
